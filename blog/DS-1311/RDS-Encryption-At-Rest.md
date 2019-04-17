@@ -1,9 +1,7 @@
 # Enable RDS Encryption At Rest For Existing Instance
-There are a number of important details you have to get right to enable Encryption At Rest on an **existing** RDS MySQL instance — this blog post is about these details.
+There are a number of important details you have to get right to enable Encryption At Rest on an **existing** RDS MySQL instance, but before delving into these details, lets answer some common questions:
 
-But before delving into these details, lets answer some common questions:
-
-Why can't you simply enable Encryption At Rest on an existing instance by fliping the switch to "ON"?  Here's what AWS documetation has to say about that:
+Why can't you simply enable Encryption At Rest on an existing instance by turning the **Encryption Enabled** switch to `ON`?  Here's what AWS documetation has to say about that:
 
 > You can only enable encryption for an Amazon RDS DB instance when you create it, not after the DB instance is created.
 >
