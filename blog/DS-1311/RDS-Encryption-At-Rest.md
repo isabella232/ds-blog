@@ -292,11 +292,11 @@ having this data structure allows us to lookup any row by it's primary key and t
 * and as a final step we reset the [binlog retention hours](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go#L172) to a static value we always use (7 days)
 
 ## Validation
-At this point, our newly restored instances with encryption at rest enabled, and it's read-replicas (if any), are ready to go, named as `new-<nameN>`.  
+At this point, all newly restored instances with encryption at rest enabled, and it's read-replicas (if any), are ready and are named as `new-<nameN>`.  
 
-And our original source instances are renamed as `old-<nameN>` to ensure no connections can be made to them.  
+Our original instances are renamed as `old-<nameN>` to ensure no connections can be made to them.  
 
-But before we rename the `new*` to their "real" names, we have to validate that the AWS RDS Attributes match across the board.  And for this task, we'll use python because it has a very powerful [difflib](https://docs.python.org/3/library/difflib.html) Standard Library:
+Before we rename the `new*` to their "real" names, we have to validate that the AWS RDS Attributes match across the board.  And for this task, we'll use python because it has a very powerful [difflib](https://docs.python.org/3/library/difflib.html) Standard Library:
 
 ```python
 import boto3
@@ -340,8 +340,19 @@ to run validation you simply execute the above script and use `grep` to filter t
 python compare_instances.py | egrep "^#|^\+"
 ```
 
-and if the differences are what you expect (just names and )
+and if the differences are what you expect simply rename the `new-*` instances to their original names using AWS CLI:
+
+```bash
+aws rds modify-db-instance --db-instance-identifier new-old-prod-one           --new-db-instance-identifier prod-one --apply-immediately
+aws rds modify-db-instance --db-instance-identifier new-old-prod-one-replica   --new-db-instance-identifier prod-one-replica --apply-immediately
+aws rds modify-db-instance --db-instance-identifier new-old-prod-one-replica2  --new-db-instance-identifier prod-one-replica2 --apply-immediately
+aws rds modify-db-instance --db-instance-identifier new-old-prod-two           --new-db-instance-identifier prod-two --apply-immediately
+aws rds modify-db-instance --db-instance-identifier new-old-prod-three         --new-db-instance-identifier prod-three --apply-immediately
+aws rds modify-db-instance --db-instance-identifier new-old-prod-three-replica --new-db-instance-identifier prod-three-replica --apply-immediately
+```
+
+**TIP**: you don't have to wait for master rename to execute the replica rename.
 
 ## Conclusion
 
-And that's it folks, 
+And that's it folks, ...
