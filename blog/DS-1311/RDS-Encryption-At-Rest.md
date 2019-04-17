@@ -1,7 +1,7 @@
 # Enable RDS Encryption At Rest For Existing Instance
-To enable Encryption At Rest on an **existing** RDS MySQL instance, there are a number of important details you have to get right to make it work — this blog post is about these details.
+There are a number of important details you have to get right to enable Encryption At Rest on an **existing** RDS MySQL instance — this blog post is about these details.
 
-Before delving into these details, lets dispel some uncertainty:
+But before delving into these details, lets answer some common questions:
 
 Why can't you simply enable Encryption At Rest on an existing instance by fliping the switch to "ON"?  Here's what AWS documetation has to say about that:
 
@@ -17,7 +17,7 @@ You also cannot create an encrypted Read Replica from an unencrypted DB instance
 >
 >  400; Error Code: InvalidParameterCombination; Request ID: 943905dc-116c-4f7b-9963-e0c5766fd92f)
 
-![](cannot-create-an-encrypted-Read-Replica.png)
+![cannot-create-an-encrypted-Read-Replica](cannot-create-an-encrypted-Read-Replica.png)
 
 So what's the solution then?  There are at least two methods to enable Encryption At Rest for an existing RDS instance:
 
