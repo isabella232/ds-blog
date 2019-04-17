@@ -17,12 +17,12 @@ You also cannot create an encrypted Read Replica from an unencrypted DB instance
 
 ![cannot-create-an-encrypted-Read-Replica](cannot-create-an-encrypted-Read-Replica.png)
 
-So what's the solution then?  There are at least two methods to enable Encryption At Rest for an existing RDS instance:
+What's the solution then?  There are at least two methods to enable Encryption At Rest for an existing RDS instance:
 
 1. **Limited Downtime**: encrypting and promoting a read replica
 2. **Complete Downtime**: cold backup / restore approach
 
-We picked **cold backup / restore approach** due to it's lower complexity, limited time and the shear volume of the instances we had to enable Encryption At Rest on.  However, both methods share the same important step: *restoring an RDS Instance from an encrypted snapshot*.  The only difference is that method 1) uses the snapshot of the read-replica and method 2) snapshot of the master/primary itself.
+We picked **cold backup / restore approach** due to it's lower complexity, limited available time and the shear volume of the instances we had to enable Encryption At Rest on.  However, both methods share the same important step: *restoring an RDS Instance from an encrypted snapshot*.  The only difference is that method 1) uses the snapshot of the read-replica and method 2) the snapshot of the master/primary itself.
 
 And there are some important gaps in the [AWS RDS API RestoreDBInstanceFromDBSnapshot](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_RestoreDBInstanceFromDBSnapshot.html) that have to be filled with proper automation, and we'll delve into them in the following section.  But before going there, lets go over the high level process overview of the **cold backup / restore approach** we went through.
 
@@ -48,11 +48,32 @@ The interesting bits are in steps 9 and 10 and that's what we'll focus on next.
 
 ## Restore Encrypted Snapshots
 
-There are some important gaps in the [AWS RDS API RestoreDBInstanceFromDBSnapshot](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_RestoreDBInstanceFromDBSnapshot.html) that have to be filled with proper automation.  Our infrustructure automation language of choice is [Go](https://golang.org/) so we'll use [real snippets of code](https://github.com/InVisionApp/ds-blog/tree/master/blog/DS-1311/code) from our tooling to go over these gaps:
+There are some important gaps in the [AWS RDS API RestoreDBInstanceFromDBSnapshot](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_RestoreDBInstanceFromDBSnapshot.html) that have to be filled with proper automation.  Our infrustructure automation language of choice is [Go](https://golang.org/) so we'll use [real snippets of code](https://github.com/InVisionApp/ds-blog/tree/master/blog/DS-1311/code) from our tooling to go over these gaps.
 
 In order to restore an RDS instance from an encrypted snapshot we construct an API call and copy the following parameters directly from the source instance:
 
 ```go
+type Instance struct {
+	Name                  string
+	MultiAZ               bool
+	Engine                string
+	EngineVersion         string
+	DBInstanceClass       string
+	AllocatedStorage      int64
+	NewDBInstanceClass    string
+	Status                string
+	ParGroupName          string
+	ParGroupStatus        string
+	PreferredBackupWindow string
+	BackupRetentionPeriod int64
+	RDSDBInstance         *rds.DBInstance
+	TagList               []*rds.Tag
+	DB                    *sql.DB
+}
+...
+...
+...
+func (s *SDK) RestoreInstance(sorceInstance Instance, takeFreshSnap bool, kmsKeyID string, np *NameParser) (Instance, error) {
 	targetName := np.NewName(sorceInstance.Name)
 	dbParGroupName := sorceInstance.RDSDBInstance.DBParameterGroups[0].DBParameterGroupName
 	vpcSecurityGroups := sorceInstance.FilterVPCSecurityGroups(Active)
@@ -83,7 +104,10 @@ In order to restore an RDS instance from an encrypted snapshot we construct an A
 	return s.ModifyInstance(targetName, *dbParGroupName, vpcSecurityGroups)
 ```
 
-Note that <u>if not supplied</u>, `MultiAZ`, `OptionGroupName` and `DBSubnetGroupName` will default to values that will not match the source instance.  And to match `DBParameterGroupName` and `VpcSecurityGroupIds` to what's defined at the source instance we have to call a [ModifyDBInstance API](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_ModifyDBInstance.html) - there is no way to do this during restore itself:
+Note that:
+
+1. <u>if not supplied</u>, `MultiAZ`, `OptionGroupName` and `DBSubnetGroupName` will default to values that won't match the source instance
+2. to match `DBParameterGroupName` and `VpcSecurityGroupIds` we have to call a [ModifyDBInstance API](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_ModifyDBInstance.html) - there is no way to do this during restore itself:
 
 ```go
 func (s *SDK) ModifyInstance(instanceName, dbParGroupName string, vpcSecurityGroups []*string) (Instance, error) {
@@ -340,7 +364,7 @@ to run validation you simply execute the above script and use `grep` to filter t
 python compare_instances.py | egrep "^#|^\+"
 ```
 
-and if the differences are what you expect simply rename the `new-*` instances to their original names using AWS CLI:
+and if the differences are what you expect, simply rename the `new-*` instances to their original names using AWS CLI:
 
 ```bash
 aws rds modify-db-instance --db-instance-identifier new-old-prod-one           --new-db-instance-identifier prod-one --apply-immediately
@@ -353,6 +377,15 @@ aws rds modify-db-instance --db-instance-identifier new-old-prod-three-replica -
 
 **TIP**: you don't have to wait for master rename to execute the replica rename.
 
+## Lessons Learned
+
+Our production deployment worked as expected because we rehearsed it 3 times ahead of time so there would be no surprises.  However, there were a couple of things we learned after the fact that you might find useful:
+
+1. There is a slight increase in R/W latency after enabling Encryption At Rest - our slow query monitor picked that up on the first business morning, right after migration (see graph below).
+2. The read replicas we recreated served as the source for Analytics Change Data Capture process and this tooling didn't support the change in MySQL binlog replication log offset so it had to go through a full resync.
+
+![slow-queries-went-up-after-encryption-at-rest-AWS-RDS](slow-queries-went-up-after-encryption-at-rest-AWS-RDS.png)
+
 ## Conclusion
 
-And that's it folks, ...
+With careful planning, automation and rehearsals it's entirely possible to enable KMS Encryption At Rest on a large number of existing RDS Instances.  And there are a few options to choose from (online vs cold).  It would be a lot simpler if AWS RDS supported enabling KMS Encryption on existing instances out of the box, but as of Mar 23 2019 it didn't — at least not on our version of MySQL - 5.6.x.
