@@ -37,7 +37,7 @@ And there are some important gaps in the [AWS RDS API RestoreDBInstanceFromDBSna
 7. Take an RDS snapshot across all databases
 8. Encrypt snapshots
 9. Restore encrypted snapshots with `new-` prefix
-10. Re-create replicas and analytics users and setup
+10. Recreate replicas and analytics users and setup
 11. Rename all newly encrypted instances and their replicas back to their original names
 12. Restart all services
 13. Restart/validate analytics processes
@@ -164,8 +164,8 @@ func (s *SDK) ModifyInstance(instanceName, dbParGroupName string, vpcSecurityGro
 
 In the code snippet above, we are calling `waitForDBStatus` twice: the first pass is to ensure the newly restored instance is in `Available` state before doing any changes, and the second time to wait for the reboot to happen before returning back to the caller.  The reboot is needed for `DBParameterGroupName` change to take effect.  If you need the code for `waitForDBStatus`, it's available here: [waitForDBStatus source code](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/wait_for_dbstatus.go)
 
-## Re-Create Read Replicas
-At this point, the instance is restored from the encrypted snapshot and all if it's attributes match the source instance it's replacing (we'll go over how to validate this in the following section).  The next step is re-create all of it's read-replicas if any exist.  And this task can require substantial custom automation depending on how these read-replicas were originally setup.  For example, we had to redo and automate the following:
+## Recreate Read Replicas
+At this point, the instance is restored from the encrypted snapshot and all if it's attributes match the source instance it's replacing (we'll go over how to validate this in the following section).  The next step is recreate all of it's read-replicas if any exist.  This task can require substantial custom automation depending on how these read-replicas were originally setup.  For example, we had to redo and automate the following:
 
 1. re-create any DB users that were created directly on the original replica
 2. re-set [binlog retention hours](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql_rds_show_configuration.html) that were configured on the original replica
