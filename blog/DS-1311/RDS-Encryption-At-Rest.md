@@ -256,7 +256,7 @@ where `mysqlReplicaClone.execute` does all of the heavy lifting to match DB's in
 - [dumpQuery](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go#L246-L324)'s job is to turn MySQL table rows into Go's `map` with it's **key** comprised of *concatenated primary key values* and it's **value** being the entire row represented as `map` with *column names as keys and column values as pointer values*.  For example, suppose the table is:
 
 ```
-PK1		PK2		COL1	COL2
+PK1 	PK2 	COL1	COL2
 -----	-----	-----	-----
 p1A 	p2A 	c1A 	c2A
 p1B 	p2B 	c1B 	c2B
