@@ -22,7 +22,7 @@ So what's the solution then?  There are at least two methods to enable Encryptio
 1. **Limited Downtime**: encrypting and promoting a read replica
 2. **Complete Downtime**: cold backup / restore approach
 
-We picked **cold backup / restore approach** due to it's lower complexity, limited time and the shear volume of the instances we had to enable Encryption At Rest.  However, both methods share the same important step: *restoring an RDS Instance from an encrypted snapshot*.  The only difference is that method 1) uses the snapshot of the read-replica and method 2) snapshot of the master/primary itself.
+We picked **cold backup / restore approach** due to it's lower complexity, limited time and the shear volume of the instances we had to enable Encryption At Rest on.  However, both methods share the same important step: *restoring an RDS Instance from an encrypted snapshot*.  The only difference is that method 1) uses the snapshot of the read-replica and method 2) snapshot of the master/primary itself.
 
 And there are some important gaps in the [AWS RDS API RestoreDBInstanceFromDBSnapshot](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_RestoreDBInstanceFromDBSnapshot.html) that have to be filled with proper automation, and we'll delve into them in the following section.  But before going there, lets go over the high level process overview of the **cold backup / restore approach** we went through.
 
@@ -162,7 +162,7 @@ func (s *SDK) ModifyInstance(instanceName, dbParGroupName string, vpcSecurityGro
 }
 ```
 
-In the code snippet above, we are calling `waitForDBStatus` twice: the first pass is to ensure the newly restored instance is in `Available` state before doing any changes, and then we wait for the reboot to happen before returning back to the caller.  The reboot is needed for `DBParameterGroupName` change to take effect.  If you need the code for `waitForDBStatus`, it's available here: [waitForDBStatus source code](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/wait_for_dbstatus.go)
+In the code snippet above, we are calling `waitForDBStatus` twice: the first pass is to ensure the newly restored instance is in `Available` state before doing any changes, and the second time to wait for the reboot to happen before returning back to the caller.  The reboot is needed for `DBParameterGroupName` change to take effect.  If you need the code for `waitForDBStatus`, it's available here: [waitForDBStatus source code](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/wait_for_dbstatus.go)
 
 ## Re-Create Read Replicas
 At this point, the instance is restored from the encrypted snapshot and all if it's attributes match the source instance it's replacing (we'll go over how to validate this in the following section).  The next step is re-create all of it's read-replicas if any exist.  And this task can require substantial custom automation depending on how these read-replicas were originally setup.  For example, we had to redo and automate the following:
