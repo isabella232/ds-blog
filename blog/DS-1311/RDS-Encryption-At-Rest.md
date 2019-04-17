@@ -168,7 +168,7 @@ In the code snippet above, we are calling `waitForDBStatus` twice: the first pas
 At this point, the instance is restored from the encrypted snapshot and all if it's attributes match the source instance it's replacing (we'll go over how to validate this in the following section).  The next step is re-create all of it's read-replicas if any exist.  And this task can require substantial custom automation depending on how these read-replicas were originally setup.  For example, we had to redo and automate the following:
 
 1. re-create any DB users that were created directly on the original replica
-2. re-set [binlog retention hours](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql_rds_show_configuration.html) that were configured at the current replica
+2. re-set [binlog retention hours](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql_rds_show_configuration.html) that were configured on the original replica
 
 Lets go over these in order:
 
@@ -217,9 +217,8 @@ func (s *SDK) reCreateReplica(master, copyFrom Instance, name string, binlogRete
 	return s.reCreateReplicaFinalize(master, copyFrom, name, binlogRetention, rootPass)
 }
 ```
-The code snippet above is similar to the restore instance from snapshot we did earlier, we are simply looping over all existing read-replicas that exist on the source instance and re-creating them with the same attributes by calling [CreateDBInstanceReadReplica API](https://docs.aws.amazon.com/goto/WebAPI/rds-2014-10-31/CreateDBInstanceReadReplica).
+The code snippet above is similar to the *restore instance from snapshot* we did earlier, we are simply looping over all existing read-replicas that exist on the source instance and re-creating them with the same attributes by calling [CreateDBInstanceReadReplica API](https://docs.aws.amazon.com/goto/WebAPI/rds-2014-10-31/CreateDBInstanceReadReplica).  Then, before returning back to caller, we finalize the replica's AWS attributes and DB's internals (users and replication parameters) to match it's souce by calling `reCreateReplicaFinalize`:
 
-And before returning back to caller, we finalize the replica's AWS attributes and DB's internals (users and replication parameters) to match it's souce by calling `reCreateReplicaFinalize`:
 ```go
 func (s *SDK) reCreateReplicaFinalize(master, copyFrom Instance, name string, binlogRetention int, rootPass string) error {
 	groupName := copyFrom.RDSDBInstance.DBParameterGroups[0].DBParameterGroupName
@@ -231,7 +230,7 @@ func (s *SDK) reCreateReplicaFinalize(master, copyFrom Instance, name string, bi
 }
 ```
 
-which first calls our familiar `ModifyInstance` [routine](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/modify_instance.go) we already went over earlier and then calling `cloneReplica`:
+which first calls `ModifyInstance` [routine](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/modify_instance.go) we went over earlier and then `cloneReplica`:
 
 ```go
 func (s *SDK) cloneReplica(master, copyFrom, newReplica Instance, binlogRetention int, rootPass string) error {
@@ -251,7 +250,7 @@ func (s *SDK) cloneReplica(master, copyFrom, newReplica Instance, binlogRetentio
 	return rc.execute(s.Verbose, dryRun)
 }
 ```
-where `mysqlReplicaClone.execute` does all of the heavy lifting to match DB's internals, the code for which is available in [mysql_replica_clone.go](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go).  The goal of the clone is to take a list of DB users from source replica instance and compare it with the target and re-create any missing users and their grants.  Here's how this works:
+where `mysqlReplicaClone.execute` does all of the heavy lifting to match DB's internals, the code for which is available in [mysql_replica_clone.go](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go).  The goal of this clone process is to take a list of DB users from source replica instance and compare it with the target and re-create any missing users and their grants.  Here's how this works:
 
 - after making [connections](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go#L94-L102) to source and target instances, we gather the users and their grants on both source and target instances using `dumpQuery` function [here](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go#L104-L119)
 - [dumpQuery](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go#L246-L324)'s job is to turn MySQL table rows into Go's `map` with it's **key** comprised of *concatenated primary key values* and it's **value** being the entire row represented as `map` with *column names as keys and column values as pointer values*.  For example, suppose the table is:
@@ -259,9 +258,9 @@ where `mysqlReplicaClone.execute` does all of the heavy lifting to match DB's in
 ```
 PK1		PK2		COL1	COL2
 -----	-----	-----	-----
-p1A		p2A		c1A		c2A
-p1B		p2B		c1B		c2B
-p1C		p2C		c1C		NULL
+p1A 	p2A 	c1A 	c2A
+p1B 	p2B 	c1B 	c2B
+p1C 	p2C 	c1C 	NULL
 ```
 
 then the resulting Go's map structure is as follows:
