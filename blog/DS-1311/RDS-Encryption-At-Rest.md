@@ -1,4 +1,13 @@
 # Enable RDS Encryption At Rest For Existing Instance
+
+During this year's SOC-2 Audit, we received an urgent requirement that all of our production databases had to have **Encryption At Rest** enabled.  The deadline was set to 1 week.  Our quick inventory check revealed that we had 10 MySQL database instances hosted on AWS RDS to encrypt and 3 of them were replicas.  To make matters worse, one of these DBs was our monolith database cluster supporting majority of our customers.  And as you can imagine with a monolith database - there are a lot of legacy services that connect to it, which makes a proposion of making a test-clone of the entire environment practically impossible.  Which meant we had to do get the process 100% right the first time around, or risk loosing data.  Needless to say - this put a high amount of pressure on our team (Data Services).
+
+Armed with this information we jumped on a call with our security team, and made an analogy, that what we are attempting to do here is like swapping foundation from underneath a skyscraper while the tenants are still inside.  Sure, we are running on AWS RDS, and they give us the heavy "*earth moving*" equipment for majority of the work we need to do, but it still requires very careful, surgical precision to execute and not miss any details.  This made the right impression and we had our deadline extened to 2 weeks.  
+
+What follows is the story of how we got this done on time, first go, and with zero data loss.
+
+## Options
+
 There are a number of important details you have to get right to enable Encryption At Rest on an **existing** RDS MySQL instance, but before delving into these details, lets answer some common questions:
 
 Why can't you simply enable Encryption At Rest on an existing instance by turning the **Encryption Enabled** switch to `ON`?  Here's what AWS documetation has to say about that:
@@ -189,7 +198,7 @@ func (s *SDK) ModifyInstance(instanceName, dbParGroupName string, vpcSecurityGro
 In the code snippet above, we are calling `waitForDBStatus` twice: the first pass is to ensure the newly restored instance is in `Available` state before doing any changes, and the second time to wait for the reboot to happen before returning back to the caller.  The reboot is needed for `DBParameterGroupName` change to take effect.  If you need the code for `waitForDBStatus`, it's available here: [waitForDBStatus source code](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/wait_for_dbstatus.go)
 
 ## Recreate Read Replicas
-At this point, the instance is restored from the encrypted snapshot and all if it's attributes match the source instance it's replacing (we'll go over how to validate this in the following section).  The next step is recreate all of it's read-replicas if any exist.  This task can require substantial custom automation depending on how these read-replicas were originally setup.  For example, we had to redo and automate the following:
+At this point, the instance is restored from the encrypted snapshot and all if it's attributes match the source instance it's replacing (we'll go over how to validate this in the following section).  The next step is to recreate all of it's read-replicas if any exist.  This task can require substantial custom automation depending on how these read-replicas were originally setup.  For example, we had to redo and automate the following:
 
 1. re-create any DB users that were created directly on the original replica
 2. re-set [binlog retention hours](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql_rds_show_configuration.html) that were configured on the original replica
@@ -312,11 +321,11 @@ then the resulting Go's map structure is as follows:
 
 having this data structure allows us to lookup any row by it's primary key and then lookup each column by it's name.  This is very powerful.
 
-* at his point we have our source and target users and all of the source schema level grants, we now compare the list of users and if the user is missing on the target we re-create it and it's schema level grants (if any) [here](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go#L133-L170)
+* at this point we have our source and target users and all of the source schema level grants, we now compare the list of users and if the user is missing on the target - we re-create it and it's schema level grants (if any) [here](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go#L133-L170)
 * and as a final step we reset the [binlog retention hours](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go#L172) to a static value we always use (7 days)
 
 ## Validation
-At this point, all newly restored instances with encryption at rest enabled, and it's read-replicas (if any), are ready and are named as `new-<nameN>`.  
+At this point, all newly restored instances with encryption at rest enabled, and it's read-replicas (if any), are ready and named as `new-<nameN>`.  
 
 Our original instances are renamed as `old-<nameN>` to ensure no connections can be made to them.  
 
@@ -375,7 +384,7 @@ aws rds modify-db-instance --db-instance-identifier new-old-prod-three         -
 aws rds modify-db-instance --db-instance-identifier new-old-prod-three-replica --new-db-instance-identifier prod-three-replica --apply-immediately
 ```
 
-**TIP**: you don't have to wait for master rename to execute the replica rename.
+**TIP**: you don't have to wait for the master rename to complete before executing the replica rename.
 
 ## Lessons Learned
 
