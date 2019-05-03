@@ -31,13 +31,13 @@ What's the solution then?  There are at least two methods to enable Encryption A
 1. **Limited Downtime**: encrypting and promoting a read replica
 2. **Complete Downtime**: cold backup / restore approach
 
-We picked **cold backup / restore approach** due to it's lower complexity, limited available time and the sheer volume of the instances we had to enable Encryption At Rest on.  However, both methods share the same important step: *restoring an RDS Instance from an encrypted snapshot*.  The only difference is that method 1) uses the snapshot of the read-replica and method 2) the snapshot of the master/primary itself.
+We picked **cold backup / restore approach** due to it's lower complexity to develop proper automation and because our SLA permits a [scheduled downtime](https://status.invisionapp.com/incidents/fsf3sf9ydfvp) on the weekends.  However, both methods share the same important step: *restoring an RDS Instance from an encrypted snapshot*.  The only difference is that method 1) uses the snapshot of the read-replica and method 2) the snapshot of the master/primary itself.
 
 And there are some important gaps in the [AWS RDS API RestoreDBInstanceFromDBSnapshot](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_RestoreDBInstanceFromDBSnapshot.html) that have to be filled with proper automation which we'll delve into in this blog post.  But before getting there, lets go over the high level process overview of the **cold backup / restore approach** we went through.
 
 ## Cold Backup / Restore Approach
 
-1. Enable site wide maintenance
+1. [Enable site wide maintenance](https://status.invisionapp.com/incidents/fsf3sf9ydfvp)
 2. Shutdown all services
 3. Shutdown analytics processes
 4. Rename the databases with `old-` prefix
