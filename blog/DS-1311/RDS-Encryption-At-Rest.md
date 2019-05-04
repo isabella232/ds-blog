@@ -4,7 +4,7 @@ During this year's SOC-2 Audit, we received an urgent requirement that all of ou
 
 To make matters worse, one of these databases was our monolith cluster supporting majority of the customer base.  And as you can imagine with a monolith database - there are a lot of legacy services that depend on it, which makes a proposion of making a test-clone of the **entire** environment practically impossible.  Which meant we had to get the encryption process 100% right the first time around, or risk loosing data.  Needless to say - this put a lot of pressure on our team (Data Services).
 
-Armed with this information we got on a call with our security team, and made an analogy, that what we are attempting to do here is like swapping foundation from underneath a skyscraper while the tenants are still inside.  Sure, we are running on AWS RDS, and they provide us the heavy "*earth moving*" equipment for majority of the work we need to do, but it still requires very careful, surgical like precision to execute this process and not miss any details.  This analogy made the right impression and we had our deadline extened to 2 weeks.  
+Armed with this information we got on a call with our security team, and made an analogy, that what we are attempting to do here is like swapping foundation from underneath a skyscraper while the tenants are still inside.  Sure, we are running on AWS RDS, and they provide the heavy "*earth moving*" equipment for majority of the work we need to do, but it still requires very careful, surgical like precision to execute this process and not miss any details.  This analogy made the right impression and we had our deadline extened to 2 weeks.  
 
 What follows is the story of how we got this done on time, first go, and with zero data loss.
 
