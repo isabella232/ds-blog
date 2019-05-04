@@ -57,7 +57,7 @@ The interesting bits are in steps 9 and 10 and that's what we'll focus on next.
 
 ## Restore Encrypted Snapshots
 
-There are some important gaps in the [AWS RDS API RestoreDBInstanceFromDBSnapshot](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_RestoreDBInstanceFromDBSnapshot.html) that have to be filled with proper automation.  Our infrustructure automation language of choice is [Go](https://golang.org/) so we'll use [real snippets of code](https://github.com/InVisionApp/ds-blog/tree/master/blog/DS-1311/code) from our tooling to go over these gaps.
+There are some important gaps in the [AWS RDS API RestoreDBInstanceFromDBSnapshot](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_RestoreDBInstanceFromDBSnapshot.html) that have to be filled with proper automation.  Our infrastructure automation language of choice is [Go](https://golang.org/) so we'll use [real snippets of code](https://github.com/InVisionApp/ds-blog/tree/master/blog/DS-1311/code) from our tooling to go over these gaps.
 
 In order to restore an RDS instance from an encrypted snapshot we construct an API call and copy the following parameters directly from the source instance:
 
