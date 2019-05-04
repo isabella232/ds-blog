@@ -31,13 +31,13 @@ What's the solution then?  There are at least two methods to enable Encryption A
 1. **Limited Downtime**: encrypting and promoting a read replica
 2. **Complete Downtime**: cold backup / restore approach
 
-We picked **cold backup / restore approach** due to it's lower complexity to develop proper automation and because our SLA permits a [scheduled downtime](https://status.invisionapp.com/incidents/fsf3sf9ydfvp) on the weekends.  However, both methods share the same important step: *restoring an RDS Instance from an encrypted snapshot*.  The only difference is that method 1) uses the snapshot of the read-replica and method 2) the snapshot of the master/primary itself.
+We picked **cold backup / restore approach** due to it's lower complexity to develop proper automation and because our SLA permits a [scheduled downtime](https://support.invisionapp.com/hc/en-us/articles/360025579551) on the weekends.  However, both methods share the same important step: *restoring an RDS Instance from an encrypted snapshot*.  The only difference is that method 1) uses the snapshot of the read-replica and method 2) the snapshot of the master/primary itself.
 
 And there are some important gaps in the [AWS RDS API RestoreDBInstanceFromDBSnapshot](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_RestoreDBInstanceFromDBSnapshot.html) that have to be filled with proper automation which we'll delve into in this blog post.  But before getting there, lets go over the high level process overview of the **cold backup / restore approach** we went through.
 
 ## Cold Backup / Restore Approach
 
-1. [Enable site wide maintenance](https://status.invisionapp.com/incidents/fsf3sf9ydfvp)
+1. [Enable site wide maintenance](https://support.invisionapp.com/hc/en-us/articles/360025579551)
 2. Shutdown all services
 3. Shutdown analytics processes
 4. Rename the databases with `old-` prefix
@@ -57,7 +57,7 @@ The interesting bits are in steps 9 and 10 and that's what we'll focus on next.
 
 ## Restore Encrypted Snapshots
 
-There are some important gaps in the [AWS RDS API RestoreDBInstanceFromDBSnapshot](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_RestoreDBInstanceFromDBSnapshot.html) that have to be filled with proper automation.  Our infrustructure automation language of choice is [Go](https://golang.org/) so we'll use [real snippets of code](https://github.com/InVisionApp/ds-blog/tree/master/blog/DS-1311/code) from our tooling to go over these gaps.
+There are some important gaps in the [AWS RDS API RestoreDBInstanceFromDBSnapshot](https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_RestoreDBInstanceFromDBSnapshot.html) that have to be filled with proper automation.  Our infrastructure automation language of choice is [Go](https://golang.org/) so we'll use [real snippets of code](https://github.com/InVisionApp/ds-blog/tree/master/blog/DS-1311/code) from our tooling to go over these gaps.
 
 In order to restore an RDS instance from an encrypted snapshot we construct an API call and copy the following parameters directly from the source instance:
 
@@ -216,7 +216,6 @@ func (s *SDK) reCreateReplica(master, copyFrom Instance, name string, binlogRete
 
 	replicaInput := &rds.CreateDBInstanceReadReplicaInput{
 		AutoMinorVersionUpgrade: copyFrom.RDSDBInstance.AutoMinorVersionUpgrade,
-		// AvailabilityZone:            copyFrom.RDSDBInstance.AvailabilityZone,
 		CopyTagsToSnapshot:   copyFrom.RDSDBInstance.CopyTagsToSnapshot,
 		DBInstanceClass:      copyFrom.RDSDBInstance.DBInstanceClass,
 		DBInstanceIdentifier: aws.String(name),
@@ -388,12 +387,96 @@ aws rds modify-db-instance --db-instance-identifier new-old-prod-three-replica -
 
 ## Lessons Learned
 
-Our production deployment worked as expected because we rehearsed it 3 times ahead of time so there would be no surprises.  However, there were a couple of things we learned after the fact that you might find useful:
+Our production deployment worked as expected and took exactly 4 hours as planned because we rehearsed it 3 times ahead of time so there would be no surprises.  However, there were a couple of things we learned after the fact that you might find useful:
 
-1. There is a slight increase in R/W latency after enabling Encryption At Rest - our slow query monitor picked that up on the first business morning, right after migration (see graph below).
-2. The read replicas we recreated served as the source for Analytics Change Data Capture process and this tooling didn't support the change in MySQL binlog replication log offset so it had to go through a full resync.
+1. There is a slight increase in R/W latency after enabling Encryption At Rest - our slow query monitor picked that up on the first business morning, right after migration (see graph and explanation below).
+2. The read replicas we recreated serve as the source for our Data Science department, who use it for analytics type reporting.  Their tooling depends on the precise offset position in the MySQL binlog replication log, and it didn't support the change in the offset that occured as part of replica rebuild process, so it had to go through a full resync.
 
+### Slow Queries
 ![slow-queries-went-up-after-encryption-at-rest-AWS-RDS](slow-queries-went-up-after-encryption-at-rest-AWS-RDS.png)
+When we saw this graph in the morning - it prompted a deep dive analysis with the help of our custom database performance monitor `sentinel`.  One of sentinel's responsibilities is to snapshot MySQL Performance Schema's `events_statements_summary_by_digest` table in order to track aggregated metrics for each SQL query over a period of time.  
+
+Armed with the **before** and **after** snapshots - we quickly determined that there was indeed an increase in the number of slow queries after enabling encryption at rest.  We went from ~5-10 slow queries in a 5 minute period to ~20-50.  This isn't a big problem for our use-case, but we had to carefully identify them to make this determination.  Here's how we did that:
+
+similar queries such as these three:
+
+```
+select a, b, c from table where a = '1'; /* took 100ms */
+select a, b, c from table where a = '2'; /* took 200ms */ 
+select a, b, c from table where a = '3'; /* took 150ms */
+```
+
+are aggregated into a single `digest` in the `events_statements_summary_by_digest` table:
+
+```
+select a, b, c from table where a = ?;
+```
+
+Then, a total time it took to execute all 3 of them is summed up to 450ms and the worst performing query's response time is recorded under MaxTimerWait column, which in this case is 200ms.  Knowing how this works we can use the value of the MaxTimerWait as the metric to find all of the slow queries that ran over a certain threshold, so that's exactly what we did:
+
+According to our graph the highest number of slow queries occurred at 8:37 PDT (~50 slow queries).   We first listed all of the available sentinel snapshots covering this time range:
+
+```
+$ sentinel-cli list -d *******.****.******.rds.amazonaws.com -r 2019-03-27T08:10:00/60
+Local Time: Thu, 28 Mar 2019 16:38:56 PDT
+Parsed Time Range:
+ (PDT): 2019-03-27T08:10:00 -- 2019-03-27T09:10:00
+ (UTC): 2019-03-27T15:10:00 -- 2019-03-27T16:10:00
+Snap ID                               Snap Date         CPU Free(MB) Swap(MB)  Active   Total     Max
+------------------------------------- -------------- ------ -------- -------- ------- ------- -------
+796f416c-a33b-432f-95e7-41fd63dd0888  03/27 08:12:47  12.66   142013        0      11    1444   16000
+17555e43-586a-45d0-b110-7e2c8f7e3c82  03/27 08:17:47  11.87   141924        0      20    1069   16000
+ab9e8352-88b6-4808-843e-2ec8193864c8  03/27 08:22:48  11.82   142048        0      32    1100   16000
+448ea997-2c47-4fff-a562-9e2e871c8777  03/27 08:27:48  14.71   142062        0      14    1339   16000
+dd532074-a1cb-4498-bc82-46145dd0b80d  03/27 08:32:48  12.28   142001        0      13    1893   16000
+50b03ded-24b4-41b0-a7f7-b6e516da8b7a  03/27 08:37:47  12.39   141805        0       5    2460   16000 <===
+ce3dfe49-4508-482a-9dd5-4626ccaaeb63  03/27 08:42:48  12.39   141648        0      12    1337   16000
+66da7798-bac1-4ea0-b33e-44bd204ab27c  03/27 08:47:48  12.04   141807        0      10    1349   16000
+67c7bda0-8980-4d0e-957f-2c0eac68ff8a  03/27 08:52:48  11.43   141990        0      10    1261   16000
+b77b402c-83dc-44c2-a0e0-64ce5859d25c  03/27 08:57:48  11.97   141929        0      24    1232   16000
+e2d154e6-cadb-4c33-a09e-e1a223992536  03/27 09:02:48  12.30   141983        0      13    1340   16000
+db4619b6-362b-418d-b3f5-0377b019b475  03/27 09:07:48  11.35   141973        0      18    1354   16000
+```
+based on the time in question, the snapshot we are after is `50b03ded-24b4-41b0-a7f7-b6e516da8b7a`, so lets dig deeper into this snapshot and give it the slow query threshold (900ms) with the `-w` flag:
+```
+$ sentinel-cli list -s 50b03ded-24b4-41b0-a7f7-b6e516da8b7a -x SELECT -w 900
+
+--------------------------------------------- ACTIVE SESSION HISTORY ---------------------------------------------------------------
+SchemaName   Digest                           CountStar  WaitSecs   LockSecs  MaxWaitMs   RowsAffected       RowsSent   RowsExamined
+------------ -------------------------------- --------- --------- ---------- ---------- -------------- -------------- --------------
+mysql        452a11153b9c2af7e24bd248f56db657         1        65          0      65734              0           8805        4058162
+***********  29d388a4d6674e2692e482d421a35738      4604        84         21       2778              0        5183291       20733267
+***********  59dab324581513327af2263da8b14534      4680        46         19       2581              0        6903081        6903081
+***********  245ff561530a55e970c39ea5e21c711b      4604       117         54       2193              0       15459268       30921081
+***********  728df02c7b00146f4de8f344cdcef5a7        74         7          6       1803              0            639         187970
+***********  6c8f5d994903e82df0a5154cca2d0f31      4601        81         33       1394              0       15481492       15481492
+***********  858ea02df09243d4a25f954bccd7f9ce     41705        44         16       1022              0        2043834        3139791
+***********  090b44c4be4ece566a6123810ad8d827     41703        42          8       1011              0        2509313        2747809
+***********  e042f1f9ab6a71a38af28c57c5f27bc0    313540        95         39       1005              0         264542        1962198
+***********  ffa76801561dcc750364fd32d8e0c1d1    123366        35         21        997              0         123356         123356
+***********  55fa43672adbf985f8ed7aa3bd8f011b    177361       726        542        994              0         177363         532086
+***********  902b98225c9edfc3267aff3e579bda16      6779        35         28        983              0           6589           6589
+***********  29ae62b6c03f10a81f6bba5526527372     46890        28         20        976              0          46170          46170
+***********  dd94a50813ccb9856b5eb0e65421caa1     42182        41         19        976              0          75132        2542644
+***********  3f84d27deb0186997b26981bcc6c7f3e     43631       159        126        970              0          43556          55608
+***********  148abefa2be2aa61398fc4b5bf764578    104928        56         41        969              0         104927         104928
+***********  1e2b0da1a94fa57684bdea380769219b     46861       155        120        963              0          27540          27540
+***********  290d8ec598416818e837b14c81514dc1      4735        46         22        956              0         281039        2016865
+***********  056c5cc74ff2279b9cdb3125334360ac     56114        42         28        955              0          56076         112152
+***********  43f3a17727631395b2765bdd6fae20f2      7559        41         33        953              0           7559         106721
+***********  6167021589007fc64d1a2f9b41d0775d     47332         9          5        944              0          47279          47279
+***********  a3d441eb3f1e941d487033ce2d5efa96    273576        91         63        927              0         273573         273577
+***********  aaf3389222b54ff2cacdd671b60839bc     11320         3          2        924              0          11285          11285
+***********  ad37ccd80bccaeea40151408fd5a0b66     32336        67         48        921              0         175609         175653
+***********  1e09fd2167795bdb9a9ecf823441bc9a     12291        23         16        911              0          11640          34920
+***********  25775934d8385b3d2766b36b25edb0b0     42182        13          7        908              0              0         127135
+***********  154b932d87179356d249760a1ed290df    178014        51         28        902              0           6864          77420
+***********  6fd6ed1765f65068ab133ea800d57dab    177186        66         36        900              0         166938         333882
+```
+all of the above queries had at least one instance when their latency was >= 900ms (recorded in MaxWaitMs column on the above report). And by definition, that's the answer to "*what were the slow queries during this time range*?" question.
+
+
+
 
 ## Conclusion
 
