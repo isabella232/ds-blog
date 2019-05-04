@@ -250,7 +250,7 @@ func (s *SDK) reCreateReplica(master, copyFrom Instance, name string, binlogRete
 	return s.reCreateReplicaFinalize(master, copyFrom, name, binlogRetention, rootPass)
 }
 ```
-The code snippet above is similar to the *restore instance from snapshot* we did earlier, we are simply looping over all existing read-replicas that exist on the source instance and re-creating them with the same attributes by calling [CreateDBInstanceReadReplica API](https://docs.aws.amazon.com/goto/WebAPI/rds-2014-10-31/CreateDBInstanceReadReplica).  Then, before returning back to caller, we finalize the replica's AWS attributes and DB's internals (users and replication parameters) to match it's souce by calling `reCreateReplicaFinalize`:
+The code snippet above is similar to the *restore instance from snapshot* we did earlier, we are looping over all existing read-replicas that exist on the source instance and re-creating them with the same attributes by calling [CreateDBInstanceReadReplica API](https://docs.aws.amazon.com/goto/WebAPI/rds-2014-10-31/CreateDBInstanceReadReplica).  Then, before returning back to caller, we finalize the replica's AWS attributes and DB's internals (users and replication parameters) to match it's source by calling `reCreateReplicaFinalize`:
 
 ```go
 func (s *SDK) reCreateReplicaFinalize(master, copyFrom Instance, name string, binlogRetention int, rootPass string) error {
