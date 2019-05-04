@@ -1,8 +1,10 @@
 # Enable RDS Encryption At Rest For Existing Instance
 
-During this year's SOC-2 Audit, we received an urgent requirement that all of our production databases had to have **Encryption At Rest** enabled.  The deadline was set to 1 week.  Our quick inventory check revealed that we had 10 MySQL database instances hosted on AWS RDS to encrypt and 3 of them were replicas.  To make matters worse, one of these DBs was our monolith database cluster supporting majority of our customers.  And as you can imagine with a monolith database - there are a lot of legacy services that connect to it, which makes a proposion of making a test-clone of the entire environment practically impossible.  Which meant we had to do get the process 100% right the first time around, or risk loosing data.  Needless to say - this put a high amount of pressure on our team (Data Services).
+During this year's SOC-2 Audit, we received an urgent requirement that all of our production databases had to have **Encryption At Rest** enabled.  The deadline was set to 1 week.  Our quick inventory check revealed that we had 10 MySQL database instances hosted on AWS RDS to encrypt and 3 of them were replicas.
 
-Armed with this information we jumped on a call with our security team, and made an analogy, that what we are attempting to do here is like swapping foundation from underneath a skyscraper while the tenants are still inside.  Sure, we are running on AWS RDS, and they give us the heavy "*earth moving*" equipment for majority of the work we need to do, but it still requires very careful, surgical precision to execute and not miss any details.  This made the right impression and we had our deadline extened to 2 weeks.  
+To make matters worse, one of these databases was our monolith cluster supporting majority of the customer base.  And as you can imagine with a monolith database - there are a lot of legacy services that depend on it, which makes a proposion of making a test-clone of the **entire** environment practically impossible.  Which meant we had to do get the process 100% right the first time around, or risk loosing data.  Needless to say - this put a lot of pressure on our team (Data Services).
+
+Armed with this information we got on a call with our security team, and made an analogy, that what we are attempting to do here is like swapping foundation from underneath a skyscraper while the tenants are still inside.  Sure, we are running on AWS RDS, and they provide us the heavy "*earth moving*" equipment for majority of the work we need to do, but it still requires very careful, surgical like precision to execute this process to not miss any details.  This analogy made the right impression and we had our deadline extened to 2 weeks.  
 
 What follows is the story of how we got this done on time, first go, and with zero data loss.
 
@@ -198,7 +200,7 @@ func (s *SDK) ModifyInstance(instanceName, dbParGroupName string, vpcSecurityGro
 In the code snippet above, we are calling `waitForDBStatus` twice: the first pass is to ensure the newly restored instance is in `Available` state before doing any changes, and the second time to wait for the reboot to happen before returning back to the caller.  The reboot is needed for `DBParameterGroupName` change to take effect.  If you need the code for `waitForDBStatus`, it's available here: [waitForDBStatus source code](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/wait_for_dbstatus.go)
 
 ## Recreate Read Replicas
-At this point, the instance is restored from the encrypted snapshot and all if it's attributes match the source instance it's replacing (we'll go over how to validate this in the following section).  The next step is to recreate all of it's read-replicas if any exist.  This task can require substantial custom automation depending on how these read-replicas were originally setup.  For example, we had to redo and automate the following:
+At this point, the instance is restored from the encrypted snapshot and all of it's attributes match the source instance it's replacing (we'll go over how to validate this in the following section).  The next step is to recreate all of it's read-replicas if any exist.  This task can require substantial custom automation depending on how these read-replicas were originally setup.  For example, we had to redo and automate the following:
 
 1. re-create any DB users that were created directly on the original replica
 2. re-set [binlog retention hours](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/mysql_rds_show_configuration.html) that were configured on the original replica
@@ -324,9 +326,9 @@ having this data structure allows us to lookup any row by it's primary key and t
 * and as a final step we reset the [binlog retention hours](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go#L172) to a static value we always use (7 days)
 
 ## Validation
-At this point, all newly restored instances with encryption at rest enabled, and it's read-replicas (if any), are ready and named as `new-<nameN>`.  
+At this point, all newly restored instances with encryption at rest enabled, and it's read-replicas (if any), are ready and named as `new-<name>`.  
 
-Our original instances are renamed as `old-<nameN>` to ensure no connections can be made to them.  
+Our original instances are renamed as `old-<name>` to ensure no connections can be made to them.  
 
 Before we rename the `new*` to their "real" names, we have to validate that the AWS RDS Attributes match across the board.  And for this task, we'll use python because it has a very powerful [difflib](https://docs.python.org/3/library/difflib.html) Standard Library:
 
@@ -372,7 +374,7 @@ to run validation we executed the above script and used `grep` to filter the dif
 python compare_instances.py | egrep "^#|^\+"
 ```
 
-and if the differences are what you expect, simply rename the `new-*` instances to their original names using AWS CLI:
+the differences were what we expected (names, etc), so we simply renamed the `new-*` instances to their original names using AWS CLI:
 
 ```bash
 aws rds modify-db-instance --db-instance-identifier new-old-prod-one           --new-db-instance-identifier prod-one --apply-immediately
@@ -437,7 +439,7 @@ b77b402c-83dc-44c2-a0e0-64ce5859d25c  03/27 08:57:48  11.97   141929        0   
 e2d154e6-cadb-4c33-a09e-e1a223992536  03/27 09:02:48  12.30   141983        0      13    1340   16000
 db4619b6-362b-418d-b3f5-0377b019b475  03/27 09:07:48  11.35   141973        0      18    1354   16000
 ```
-based on the time in question, the snapshot we are after is `50b03ded-24b4-41b0-a7f7-b6e516da8b7a`, so lets dig deeper into this snapshot and give it the slow query threshold (900ms) with the `-w` flag:
+based on the time in question, the snapshot we were after was `50b03ded-24b4-41b0-a7f7-b6e516da8b7a`, so we dug deeper into this snapshot and gave it the *slow query threshold* of (900ms) with the `-w` flag:
 ```
 $ sentinel-cli list -s 50b03ded-24b4-41b0-a7f7-b6e516da8b7a -x SELECT -w 900
 
@@ -473,7 +475,7 @@ mysql        452a11153b9c2af7e24bd248f56db657         1        65          0    
 ***********  154b932d87179356d249760a1ed290df    178014        51         28        902              0           6864          77420
 ***********  6fd6ed1765f65068ab133ea800d57dab    177186        66         36        900              0         166938         333882
 ```
-all of the above queries had at least one instance when their latency was >= 900ms (recorded in MaxWaitMs column on the above report). And by definition, that's the answer to "*what were the slow queries during this time range*?" question.
+all of the above queries had at least one instance when their latency was >= 900ms (recorded in MaxWaitMs column on the above report).  Mystery solved - we gave the list to the product engineering team and later determined that this was an insignificant change for our use-case.
 
 
 
