@@ -367,7 +367,7 @@ for instance_pair in instances:
     check_instances(instance_pair)
 ```
 
-to run validation you simply execute the above script and use `grep` to filter the differences:
+to run validation we executed the above script and used `grep` to filter the differences:
 
 ```bash
 python compare_instances.py | egrep "^#|^\+"
