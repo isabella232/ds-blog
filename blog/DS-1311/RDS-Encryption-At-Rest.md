@@ -326,14 +326,14 @@ having this data structure allows us to lookup any row by it's primary key and t
 * and as a final step we reset the [binlog retention hours](https://github.com/InVisionApp/ds-blog/blob/master/blog/DS-1311/code/mysql_replica_clone.go#L172) to a static value we always use (7 days)
 
 ## Validation
-Lets recap what we have at this point:
+Lets recap what we had at this point:
 
 * all newly restored instances have encryption at rest enabled
 * their read-replicas (if any) are re-created
-* and all the new instances are named `new-<name>`
-* original instances are named as `old-<name>` to ensure no connections can be made to them
+* all the new instances named as `new-<name>`
+* original instances named as `old-<name>` to ensure no connections can be made to them
 
-Before we rename the `new*` instances to their "real" names, we have to validate that the AWS RDS Attributes match across the board.  And for this task, we'll use python because it has a very powerful [difflib](https://docs.python.org/3/library/difflib.html) Standard Library:
+Before we renamed the `new*` instances to their "real" names, we had to validate that the AWS RDS Attributes matched across the board.  And for this task, we used used `python` because it has a very powerful [difflib](https://docs.python.org/3/library/difflib.html) Standard Library:
 
 ```python
 import boto3
