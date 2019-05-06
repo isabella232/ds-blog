@@ -395,7 +395,7 @@ aws rds modify-db-instance --db-instance-identifier new-old-prod-three-replica -
 Our production deployment worked as expected and took exactly 4 hours as planned because we rehearsed it 3 times ahead of time so there would be no surprises.  However, there were a couple of things we learned after the fact that you might find useful:
 
 1. There is a slight increase in R/W latency after enabling Encryption At Rest - our slow query monitor picked that up on the first business morning, right after migration (see graph and explanation below).
-2. The read replicas we recreated serve as the source for our Data Science department, who use it for analytics type reporting.  Their tooling depends on the precise offset position in the MySQL binlog replication log, and it didn't support the change in the offset that occured as part of replica rebuild process, so it had to go through a full resync.
+2. The read replicas we recreated serve as the source for our Data Science department, who use it for analytics type reporting.  Their tooling depends on the precise offset position in the MySQL binlog replication log, and it didn't support the change in the offset that occured as part of the replica rebuild process, so it had to go through a full resync.
 
 ### Slow Queries
 ![slow-queries-went-up-after-encryption-at-rest-AWS-RDS](slow-queries-went-up-after-encryption-at-rest-AWS-RDS.png)
@@ -442,7 +442,7 @@ b77b402c-83dc-44c2-a0e0-64ce5859d25c  03/27 08:57:48  11.97   141929        0   
 e2d154e6-cadb-4c33-a09e-e1a223992536  03/27 09:02:48  12.30   141983        0      13    1340   16000
 db4619b6-362b-418d-b3f5-0377b019b475  03/27 09:07:48  11.35   141973        0      18    1354   16000
 ```
-based on the time in question, the snapshot we were after was `50b03ded-24b4-41b0-a7f7-b6e516da8b7a`, so we dug deeper into this snapshot and gave it the *slow query threshold* of (900ms) with the `-w` flag:
+based on the time in question, the snapshot we were after is `50b03ded-24b4-41b0-a7f7-b6e516da8b7a`, so we dug deeper and gave it the *slow query threshold* of (900ms) with the `-w` flag:
 ```
 $ sentinel-cli list -s 50b03ded-24b4-41b0-a7f7-b6e516da8b7a -x SELECT -w 900
 
@@ -485,4 +485,4 @@ all of the above queries had at least one instance when their latency was >= 900
 
 ## Conclusion
 
-With careful planning, automation and rehearsals it's entirely possible to enable KMS Encryption At Rest on a large number of existing RDS Instances.  And there are a few options to choose from (online vs cold).  It would be a lot simpler if AWS RDS supported enabling KMS Encryption on existing instances out of the box, but as of Mar 23 2019 it didn't — at least not on our version of MySQL - 5.6.x.
+With careful planning, automation and rehearsals, it's entirely possible to enable KMS Encryption At Rest on a large number of existing RDS Instances.  And there are a few options to choose from (online vs cold).  It would be a lot simpler if AWS RDS supported enabling KMS Encryption on existing instances out of the box, but as of Mar 23 2019 it didn't — at least not on our version of MySQL - 5.6.x.
